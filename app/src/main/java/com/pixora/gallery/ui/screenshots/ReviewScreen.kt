@@ -237,8 +237,14 @@ fun ReviewScreen(onBack: () -> Unit) {
     val prepared = cards.map { card ->
         val category = ContentCategory.fromName(card.analysis.userCategory.orEmpty().ifBlank { card.analysis.category })
         val origin = ShotTriage.origin(card.media.displayName)
+        val rawTitle = card.analysis.userTitle.orEmpty().ifBlank { card.analysis.title.orEmpty() }
+        val untitled = category.watchable && (rawTitle.isBlank() || NoteDeduplicator.isCategoryLabel(rawTitle))
         val noise = origin == ShotOrigin.CHAT || (origin == ShotOrigin.GAME && !category.watchable)
-        val analysis = if (noise && !card.analysis.userEdited) card.analysis.copy(saveChecked = false) else card.analysis
+        val analysis = if ((noise || untitled) && !card.analysis.userEdited) {
+            card.analysis.copy(saveChecked = false)
+        } else {
+            card.analysis
+        }
         val adjusted = card.copy(analysis = analysis)
         adjusted to ShotTriage.lane(
             origin,

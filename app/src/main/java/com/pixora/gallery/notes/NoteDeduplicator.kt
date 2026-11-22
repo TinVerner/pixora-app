@@ -10,6 +10,13 @@ object NoteDeduplicator {
         return "${category.lowercase()}|$normalized|${year ?: ""}"
     }
 
+    /** A title that is only the category word, such as "DORAMA" or "SERIES". */
+    fun isCategoryLabel(title: String?): Boolean {
+        val key = HeuristicContentInterpreter.normalizeKey(title.orEmpty())
+        if (key.isEmpty()) return false
+        return key in CATEGORY_LABELS
+    }
+
     fun similarity(left: String, right: String): Double {
         val a = HeuristicContentInterpreter.normalizeKey(left)
         val b = HeuristicContentInterpreter.normalizeKey(right)
@@ -24,6 +31,13 @@ object NoteDeduplicator {
         if (key.length < 3) return false
         return others.any { similarity(key, it) >= threshold }
     }
+
+    private val CATEGORY_LABELS = setOf(
+        "movie", "movies", "series", "dorama", "doramas", "anime", "drama", "k drama", "kdrama",
+        "фильм", "фильмы", "сериал", "сериалы", "дорама", "дорамы", "аниме",
+        "recipe", "note", "shopping", "link", "address", "event", "document", "other",
+        "рецепт", "заметка", "покупки", "ссылка", "адрес", "событие", "документ", "прочее",
+    )
 
     private fun levenshtein(a: String, b: String): Int {
         val prev = IntArray(b.length + 1) { it }

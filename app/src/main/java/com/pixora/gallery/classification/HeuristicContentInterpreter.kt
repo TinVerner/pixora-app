@@ -300,7 +300,8 @@ class HeuristicContentInterpreter : ContentInterpreter {
 
         private val TITLE_STOP = CHROME + setOf(
             "дорама", "дорамы", "фильм", "фильмы", "сериал", "сериалы", "аниме",
-            "movie", "movies", "series", "anime", "drama", "k-drama",
+            "movie", "movies", "series", "anime", "drama", "k-drama", "kdrama",
+            "dorama", "doramas",
         )
 
         private val KEYWORDS: Map<ContentCategory, List<Pair<Regex, Int>>> = mapOf(

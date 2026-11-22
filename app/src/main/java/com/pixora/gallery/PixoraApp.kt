@@ -54,6 +54,7 @@ class AppGraph(app: PixoraApp) {
     val scheduler = WorkScheduler(appContext)
 
     fun start() {
+        scope.launch { notes.dropCategoryLabels() }
         scope.launch {
             settings.flow.collect { current ->
                 val locales = when (current.language) {

@@ -3,6 +3,7 @@ package com.pixora.gallery.data.notes
 import androidx.room.withTransaction
 import com.pixora.gallery.data.db.NoteEntity
 import com.pixora.gallery.data.db.PixoraDatabase
+import com.pixora.gallery.classification.ContentCategory
 import com.pixora.gallery.notes.NoteDeduplicator
 import com.pixora.gallery.notes.NoteTransfer
 import com.pixora.gallery.notes.NotesBackup
@@ -33,6 +34,10 @@ class NoteRepository(
         var duplicates = 0
         val now = System.currentTimeMillis()
         drafts.forEach { draft ->
+            val title = draft.title.trim()
+            val category = ContentCategory.fromName(draft.category)
+            if (NoteDeduplicator.isCategoryLabel(title)) return@forEach
+            if (title.isBlank() && category.watchable) return@forEach
             val existing = if (draft.dedupKey.isNotBlank()) dao.idByKey(draft.dedupKey) else null
             if (existing != null && !draft.allowDuplicate) {
                 ids += existing
@@ -43,7 +48,7 @@ class NoteRepository(
             val id = dao.insert(
                 NoteEntity(
                     category = draft.category,
-                    title = draft.title.ifBlank { draft.category },
+                    title = title,
                     year = draft.year,
                     body = draft.body,
                     sourceText = draft.sourceText,
@@ -79,6 +84,16 @@ class NoteRepository(
     suspend fun delete(id: Long) = dao.delete(id)
 
     suspend fun clear() = dao.clear()
+
+    suspend fun dropCategoryLabels() {
+        val ids = dao.all()
+            .filter { NoteDeduplicator.isCategoryLabel(it.title) }
+            .map { it.id }
+        if (ids.isEmpty()) return
+        db.withTransaction {
+            ids.forEach { dao.delete(it) }
+        }
+    }
 
     suspend fun exportBackup(): NotesBackup {
         val notes = dao.all().map { it.toTransfer() }

@@ -27,6 +27,7 @@ import com.pixora.gallery.duplicates.QualityScorer
 import com.pixora.gallery.duplicates.SimilarClusterer
 import com.pixora.gallery.duplicates.VisualItem
 import com.pixora.gallery.media.ShotTriage
+import com.pixora.gallery.notes.NoteDeduplicator
 import com.pixora.gallery.ocr.TesseractOcrEngine
 import androidx.room.withTransaction
 import com.pixora.gallery.albums.AlbumLabels
@@ -430,7 +431,7 @@ class AnalysisJobs(
 
     private fun defaultSave(watchable: Boolean, title: String?, text: String, confidence: Int): Boolean {
         if (text.isBlank()) return false
-        if (watchable && title.isNullOrBlank() && confidence < 35) return false
+        if (watchable && (title.isNullOrBlank() || NoteDeduplicator.isCategoryLabel(title))) return false
         return text.length >= 8 || !title.isNullOrBlank()
     }
 

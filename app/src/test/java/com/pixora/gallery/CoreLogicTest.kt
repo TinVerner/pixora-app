@@ -55,6 +55,17 @@ class CoreLogicTest {
     }
 
     @Test
+    fun categoryWordIsNotASavedTitle() {
+        assertTrue(NoteDeduplicator.isCategoryLabel("DORAMA"))
+        assertTrue(NoteDeduplicator.isCategoryLabel("SERIES"))
+        assertTrue(NoteDeduplicator.isCategoryLabel("дорама"))
+        assertTrue(!NoteDeduplicator.isCategoryLabel("Чёрное зеркало"))
+        assertTrue(!NoteDeduplicator.isCategoryLabel("Следуя за сердцем"))
+        val result = interpreter.interpret("DORAMA\nдорама\nтоп дорам")
+        assertNull(result.title)
+    }
+
+    @Test
     fun ignoresTikTokChromeAndHandles() {
         val result = interpreter.interpret("@cooluser\nПодписаться\nДля вас\n12.4K\nНравится")
         assertNull(result.title)
