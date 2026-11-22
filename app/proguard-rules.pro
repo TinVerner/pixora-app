@@ -1,0 +1,5 @@
+-keep class com.googlecode.tesseract.android.** { *; }
+-keep class com.googlecode.leptonica.android.** { *; }
+-keep class com.pixora.gallery.notes.** { *; }
+-keep class com.pixora.gallery.data.notes.** { *; }
+-keepattributes *Annotation*,InnerClasses,Signature,EnclosingMethod
