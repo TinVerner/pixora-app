@@ -26,6 +26,7 @@ import com.pixora.gallery.duplicates.HashedFile
 import com.pixora.gallery.duplicates.QualityScorer
 import com.pixora.gallery.duplicates.SimilarClusterer
 import com.pixora.gallery.duplicates.VisualItem
+import com.pixora.gallery.media.ShotTriage
 import com.pixora.gallery.ocr.TesseractOcrEngine
 import androidx.room.withTransaction
 import com.pixora.gallery.albums.AlbumLabels
@@ -140,15 +141,20 @@ class AnalysisJobs(
         progress(entities.size, entities.size)
     }
 
-    suspend fun recognizeScreenshots(limit: Int? = null) {
+    suspend fun recognizeScreenshots(limit: Int? = null, includeNoise: Boolean = false) {
         val shots = db.media().getAll().filter { it.isScreenshot && !it.isVideo }
         val pending = ArrayList<MediaItemEntity>()
         for (shot in shots) {
+            if (!includeNoise && !ShotTriage.origin(shot.displayName).worthReading) continue
             val cache = db.ocr().get(shot.id)
             val fresh = cache != null && cache.dateModified == shot.dateModified && cache.sizeBytes == shot.sizeBytes
             if (!fresh) pending += shot
         }
-        val queue = if (limit == null) pending else pending.take(limit)
+        val ordered = pending.sortedWith(
+            compareBy<MediaItemEntity> { ShotTriage.origin(it.displayName).ordinal }
+                .thenByDescending { it.dateModified },
+        )
+        val queue = if (limit == null) ordered else ordered.take(limit)
         AppLog.i("ocr queue ${queue.size} of ${shots.size} screenshots")
         queue.forEachIndexed { index, shot ->
             checkpoint()
@@ -195,7 +201,12 @@ class AnalysisJobs(
                         userCategory = reading.category.name,
                         userYear = reading.year,
                         userEdited = false,
-                        saveChecked = defaultSave(reading.category.watchable, reading.title, result.text, reading.confidence),
+                        saveChecked = defaultSave(
+                            reading.category.watchable,
+                            reading.title,
+                            result.text,
+                            reading.confidence,
+                        ) && ShotTriage.origin(shot.displayName).worthReading,
                         trashChecked = false,
                         allowDuplicate = false,
                         updatedAt = now,

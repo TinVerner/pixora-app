@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -36,9 +37,12 @@ import com.pixora.gallery.LocalGraph
 import com.pixora.gallery.core.AppLog
 import com.pixora.gallery.R
 import com.pixora.gallery.data.db.MediaItemEntity
+import com.pixora.gallery.media.ShotOrigin
+import com.pixora.gallery.media.ShotTriage
 import com.pixora.gallery.ui.EmptyText
 import com.pixora.gallery.ui.JobBanner
 import com.pixora.gallery.ui.Thumb
+import com.pixora.gallery.ui.originLabel
 import com.pixora.gallery.ui.home.factory
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,13 +63,11 @@ class ShotsViewModel(private val graph: com.pixora.gallery.AppGraph) : ViewModel
         graph.db.media().observeScreenshots(from)
     }
 
-    val unprocessed = graph.db.media().observeUnprocessedScreenshots()
-
     fun setDays(value: Int) { days.value = value }
 
-    fun analyze() {
-        AppLog.i("analyze clicked, jobActive=${graph.jobs.running()}")
-        graph.jobs.launch("ocr") { graph.jobs.recognizeScreenshots() }
+    fun analyze(includeNoise: Boolean = false) {
+        AppLog.i("analyze clicked, noise=$includeNoise, jobActive=${graph.jobs.running()}")
+        graph.jobs.launch("ocr") { graph.jobs.recognizeScreenshots(includeNoise = includeNoise) }
     }
 
     fun pause() = graph.jobs.pause()
@@ -82,9 +84,18 @@ fun ShotsScreen(onReview: () -> Unit) {
     val graph = LocalGraph.current
     val vm = viewModel<ShotsViewModel>(factory = factory { ShotsViewModel(graph) })
     val shots by vm.shots.collectAsState(emptyList())
-    val pending by vm.unprocessed.collectAsState(0)
     val job by vm.job.collectAsState()
     var days by remember { mutableIntStateOf(0) }
+    var group by remember { mutableIntStateOf(0) }
+    val visible = shots.filter { shot ->
+        val origin = ShotTriage.origin(shot.displayName)
+        when (group) {
+            1 -> origin == ShotOrigin.CHAT
+            2 -> origin == ShotOrigin.GAME
+            else -> origin.worthReading
+        }
+    }
+    val usefulCount = shots.count { ShotTriage.origin(it.displayName).worthReading }
     val periods = listOf(0 to R.string.period_all, 7 to R.string.period_7, 30 to R.string.period_30, 90 to R.string.period_90, 365 to R.string.period_365)
     Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.shots_title)) }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -103,28 +114,49 @@ fun ShotsScreen(onReview: () -> Unit) {
                     )
                 }
             }
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item {
+                    FilterChip(selected = group == 0, onClick = { group = 0 }, label = { Text(stringResource(R.string.group_useful)) })
+                }
+                item {
+                    FilterChip(selected = group == 1, onClick = { group = 1 }, label = { Text(stringResource(R.string.lane_chat)) })
+                }
+                item {
+                    FilterChip(selected = group == 2, onClick = { group = 2 }, label = { Text(stringResource(R.string.lane_game)) })
+                }
+            }
             JobBanner(job)
             Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = vm::analyze, enabled = !job.running) { Text(stringResource(R.string.analyze)) }
+                Button(onClick = { vm.analyze(false) }, enabled = !job.running) { Text(stringResource(R.string.analyze)) }
                 if (job.running && !job.paused) OutlinedButton(onClick = vm::pause) { Text(stringResource(R.string.pause)) }
                 if (job.running && job.paused) OutlinedButton(onClick = vm::resume) { Text(stringResource(R.string.resume)) }
                 if (job.running) OutlinedButton(onClick = vm::stop) { Text(stringResource(R.string.stop)) }
             }
+            if (!job.running) {
+                TextButton(onClick = { vm.analyze(true) }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                    Text(stringResource(R.string.analyze_all))
+                }
+            }
             Text(
-                stringResource(R.string.review_ready, pending),
+                stringResource(R.string.review_ready, usefulCount),
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
             Button(onClick = onReview, modifier = Modifier.padding(horizontal = 16.dp)) {
                 Text(stringResource(R.string.action_review))
             }
-            if (shots.isEmpty()) {
-                EmptyText(stringResource(R.string.empty_shots))
-                OutlinedButton(onClick = vm::index, modifier = Modifier.padding(horizontal = 16.dp)) {
-                    Text(stringResource(R.string.refresh))
+            if (visible.isEmpty()) {
+                EmptyText(stringResource(if (shots.isEmpty()) R.string.empty_shots else R.string.empty_lane))
+                if (shots.isEmpty()) {
+                    OutlinedButton(onClick = vm::index, modifier = Modifier.padding(horizontal = 16.dp)) {
+                        Text(stringResource(R.string.refresh))
+                    }
                 }
             } else {
                 LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(shots, key = { it.id }) { shot -> ShotRow(shot) }
+                    items(visible, key = { it.id }) { shot -> ShotRow(shot) }
                 }
             }
         }
@@ -140,6 +172,7 @@ private fun ShotRow(shot: MediaItemEntity) {
     ) {
         Thumb(shot.uri, 72.dp)
         Column {
+            Text(originLabel(ShotTriage.origin(shot.displayName)), style = MaterialTheme.typography.labelMedium)
             Text(shot.displayName, style = MaterialTheme.typography.titleSmall, maxLines = 1)
             Text(shot.bucketName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

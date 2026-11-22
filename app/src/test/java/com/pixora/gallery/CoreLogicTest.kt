@@ -12,7 +12,10 @@ import com.pixora.gallery.duplicates.HashedFile
 import com.pixora.gallery.duplicates.QualityScorer
 import com.pixora.gallery.duplicates.SimilarClusterer
 import com.pixora.gallery.duplicates.VisualItem
+import com.pixora.gallery.media.ReviewLane
 import com.pixora.gallery.media.ScreenshotDetector
+import com.pixora.gallery.media.ShotOrigin
+import com.pixora.gallery.media.ShotTriage
 import com.pixora.gallery.notes.NoteDeduplicator
 import com.pixora.gallery.notes.NoteTransfer
 import com.pixora.gallery.notes.NotesBackup
@@ -80,6 +83,29 @@ class CoreLogicTest {
         val link = interpreter.interpret("https://example.com/watch")
         assertEquals(ContentCategory.LINK, link.category)
         assertTrue(link.title?.contains("example.com") == true)
+    }
+
+    @Test
+    fun sortsTikTokAwayFromChatsAndGames() {
+        assertEquals(ShotOrigin.TIKTOK, ShotTriage.origin("Screenshot_20261122_081232_TikTok.jpg"))
+        assertEquals(ShotOrigin.CHAT, ShotTriage.origin("Screenshot_20261122_162330_AyuGram.jpg"))
+        assertEquals(ShotOrigin.GAME, ShotTriage.origin("Screenshot_20261122_103039_Mobile Legends Bang Bang.jpg"))
+        assertEquals(ShotOrigin.GAME, ShotTriage.origin("Screenshot_2022-10-31-17-21-17-581_com.miHoYo.GenshinImpact.jpg"))
+        assertEquals(ShotOrigin.INSTAGRAM, ShotTriage.origin("Screenshot_20261101_120000_Instagram.jpg"))
+        assertTrue(ShotTriage.origin("Screenshot_20261122_081232_TikTok.jpg").worthReading)
+        assertTrue(!ShotTriage.origin("Screenshot_20261122_162330_AyuGram.jpg").worthReading)
+        assertEquals(
+            ReviewLane.TITLES,
+            ShotTriage.lane(ShotOrigin.TIKTOK, ContentCategory.DORAMA, "Истинная красота", emptyList()),
+        )
+        assertEquals(
+            ReviewLane.GAME,
+            ShotTriage.lane(ShotOrigin.GAME, ContentCategory.NOTE, "Yd 7 mar д", emptyList()),
+        )
+        assertEquals(
+            ReviewLane.CHAT,
+            ShotTriage.lane(ShotOrigin.CHAT, ContentCategory.NOTE, "привет", emptyList()),
+        )
     }
 
     @Test

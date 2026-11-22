@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -25,6 +27,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -61,6 +64,9 @@ import com.pixora.gallery.classification.ContentCategory
 import com.pixora.gallery.classification.ExplainCode
 import com.pixora.gallery.core.formatBytes
 import com.pixora.gallery.data.db.AnalysisEntity
+import com.pixora.gallery.media.ReviewLane
+import com.pixora.gallery.media.ShotOrigin
+import com.pixora.gallery.media.ShotTriage
 import com.pixora.gallery.data.db.MediaItemEntity
 import com.pixora.gallery.notes.NoteDeduplicator
 import com.pixora.gallery.ops.CommitResult
@@ -71,6 +77,7 @@ import com.pixora.gallery.ui.EmptyText
 import com.pixora.gallery.ui.Thumb
 import com.pixora.gallery.ui.categoryLabel
 import com.pixora.gallery.ui.explainLabel
+import com.pixora.gallery.ui.originLabel
 import com.pixora.gallery.ui.home.factory
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -226,6 +233,28 @@ fun ReviewScreen(onBack: () -> Unit) {
     val graph = LocalGraph.current
     val vm = viewModel<ReviewViewModel>(factory = factory { ReviewViewModel(graph) })
     val cards by vm.cards.collectAsState(emptyList())
+    var lane by remember { mutableStateOf(ReviewLane.TITLES) }
+    val prepared = cards.map { card ->
+        val category = ContentCategory.fromName(card.analysis.userCategory.orEmpty().ifBlank { card.analysis.category })
+        val origin = ShotTriage.origin(card.media.displayName)
+        val noise = origin == ShotOrigin.CHAT || (origin == ShotOrigin.GAME && !category.watchable)
+        val analysis = if (noise && !card.analysis.userEdited) card.analysis.copy(saveChecked = false) else card.analysis
+        val adjusted = card.copy(analysis = analysis)
+        adjusted to ShotTriage.lane(
+            origin,
+            category,
+            analysis.userTitle.orEmpty().ifBlank { analysis.title },
+            vm.candidates(analysis.candidatesJson),
+        )
+    }
+    val shown = prepared
+        .filter { it.second == lane }
+        .map { it.first }
+        .sortedWith(
+            compareBy<ReviewCard> {
+                ShotTriage.titleRank(ContentCategory.fromName(it.analysis.userCategory.orEmpty().ifBlank { it.analysis.category }))
+            }.thenByDescending { it.media.dateModified },
+        )
     val prompt by vm.prompt.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -243,8 +272,8 @@ fun ReviewScreen(onBack: () -> Unit) {
             vm.messages.collect { snackbar.showSnackbar(it) }
         }
     }
-    val saveCount = cards.count { it.analysis.saveChecked }
-    val trashCards = cards.filter { it.analysis.trashChecked }
+    val saveCount = shown.count { it.analysis.saveChecked }
+    val trashCards = shown.filter { it.analysis.trashChecked }
     val trashBytes = trashCards.sumOf { it.media.sizeBytes }
     Scaffold(
         topBar = {
@@ -257,8 +286,8 @@ fun ReviewScreen(onBack: () -> Unit) {
                     Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    TextButton(onClick = { vm.mass(cards, save = true) }) { Text(stringResource(R.string.mass_save)) }
-                    TextButton(onClick = { vm.mass(cards, skip = true) }) { Text(stringResource(R.string.mass_skip)) }
+                    TextButton(onClick = { vm.mass(shown, save = true) }) { Text(stringResource(R.string.mass_save)) }
+                    TextButton(onClick = { vm.mass(shown, skip = true) }) { Text(stringResource(R.string.mass_skip)) }
                 }
             }
         },
@@ -271,7 +300,7 @@ fun ReviewScreen(onBack: () -> Unit) {
                     Text(stringResource(R.string.summary_free, formatBytes(trashBytes)))
                     Text(stringResource(R.string.system_trash_hint), style = MaterialTheme.typography.labelSmall)
                     Button(
-                        onClick = { vm.requestCommit(cards) },
+                        onClick = { vm.requestCommit(shown) },
                         enabled = saveCount + trashCards.size > 0,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(stringResource(R.string.check_action)) }
@@ -279,15 +308,29 @@ fun ReviewScreen(onBack: () -> Unit) {
             }
         },
     ) { padding ->
-        if (cards.isEmpty()) {
-            EmptyText(stringResource(R.string.empty_review), Modifier.padding(padding))
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(cards, key = { it.media.id }) { card ->
+                items(ReviewLane.entries) { item ->
+                    val count = prepared.count { it.second == item }
+                    FilterChip(
+                        selected = lane == item,
+                        onClick = { lane = item },
+                        label = { Text("${laneLabel(item)} $count") },
+                    )
+                }
+            }
+            if (shown.isEmpty()) {
+                EmptyText(stringResource(if (cards.isEmpty()) R.string.empty_review else R.string.empty_lane))
+            } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(12.dp),
+            ) {
+                items(shown, key = { it.media.id }) { card ->
                     ReviewCardView(
                         card = card,
                         candidates = vm.candidates(card.analysis.candidatesJson),
@@ -297,6 +340,7 @@ fun ReviewScreen(onBack: () -> Unit) {
                     )
                 }
             }
+            }
         }
     }
     if (prompt) {
@@ -304,7 +348,7 @@ fun ReviewScreen(onBack: () -> Unit) {
             onDismissRequest = vm::dismissPrompt,
             title = { Text(stringResource(R.string.discard_title)) },
             text = { Text(stringResource(R.string.discard_body)) },
-            confirmButton = { TextButton(onClick = { vm.confirmDiscard(cards) }) { Text(stringResource(R.string.yes)) } },
+            confirmButton = { TextButton(onClick = { vm.confirmDiscard(shown) }) { Text(stringResource(R.string.yes)) } },
             dismissButton = { TextButton(onClick = vm::dismissPrompt) { Text(stringResource(R.string.cancel)) } },
         )
     }
@@ -318,6 +362,17 @@ fun ReviewScreen(onBack: () -> Unit) {
         }
     }
 }
+
+@Composable
+private fun laneLabel(lane: ReviewLane): String = stringResource(
+    when (lane) {
+        ReviewLane.TITLES -> R.string.lane_titles
+        ReviewLane.SOCIAL -> R.string.lane_social
+        ReviewLane.REST -> R.string.lane_rest
+        ReviewLane.CHAT -> R.string.lane_chat
+        ReviewLane.GAME -> R.string.lane_game
+    },
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -369,6 +424,7 @@ private fun ReviewFields(
     onSkip: () -> Unit,
 ) {
     val analysis = card.analysis
+    Text(originLabel(ShotTriage.origin(card.media.displayName)), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
     Text(card.media.displayName, style = MaterialTheme.typography.labelMedium)
     Text(stringResource(R.string.ocr_confidence, analysis.ocrConfidence))
     Text(stringResource(R.string.rule_confidence, analysis.confidence))

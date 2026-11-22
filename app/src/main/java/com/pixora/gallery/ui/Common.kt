@@ -30,6 +30,20 @@ import com.pixora.gallery.background.JobState
 import com.pixora.gallery.classification.ContentCategory
 import com.pixora.gallery.classification.ExplainCode
 import com.pixora.gallery.cleanup.CleanupReason
+import com.pixora.gallery.media.ShotOrigin
+
+@Composable
+fun originLabel(origin: ShotOrigin): String = stringResource(
+    when (origin) {
+        ShotOrigin.TIKTOK -> R.string.origin_tiktok
+        ShotOrigin.INSTAGRAM -> R.string.origin_instagram
+        ShotOrigin.YOUTUBE -> R.string.origin_youtube
+        ShotOrigin.BROWSER -> R.string.origin_browser
+        ShotOrigin.CHAT -> R.string.origin_chat
+        ShotOrigin.GAME -> R.string.origin_game
+        ShotOrigin.OTHER -> R.string.origin_other
+    },
+)
 
 @Composable
 fun categoryLabel(category: ContentCategory): String = stringResource(
